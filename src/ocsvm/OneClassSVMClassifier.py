@@ -3,6 +3,9 @@ import cvxopt
 from scipy import linalg
 from sklearn.metrics import pairwise_distances
 import matplotlib.pyplot as plt
+from src.utils.kernels.inducing_points import compute_inducing_points
+from torch import FloatTensor
+
 
 from dataclasses import dataclass, field
 from typing import Optional
@@ -110,24 +113,27 @@ class OneClassSVMModel:
         plt.ylim([-1, 5])
 
 
-
 @dataclass()
 class OneClassSVMClassifier(object):
+    X: FloatTensor
     nu: float = 0.1
     gamma: float = 0.3
     model: Optional['OneClassSVMModel'] = field(init=False, default=None)
+    num_inducing_points: int = field(default=None)
 
     def __post_init__(self):
         self.model = OneClassSVMModel(nu=self.nu, gamma=self.gamma)
+        #update the dataset to have only sample size = num_inducing_points
+        self.inducing_points = compute_inducing_points(self.X, self.num_inducing_points)
 
-    def fit(self, X):
-        return self.model.fit(X)
+    def fit(self):
+        return self.model.fit(self.inducing_points)
 
-    def plot(self, X):
-        return self.model.plot_ocsvm(X)
+    def plot(self):
+        return self.model.plot_ocsvm(self.inducing_points.numpy())
     
-    def predict(self, X):
-        return self.model.predict(X)
+    def predict(self):
+        return self.model.predict(self.inducing_points)
     
-    def decision(self, X):
-        return self.model.decision_function(X)
+    def decision(self):
+        return self.model.decision_function(self.inducing_points)
