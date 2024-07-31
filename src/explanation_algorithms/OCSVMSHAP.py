@@ -32,6 +32,7 @@ class OCSVMSHAP(object):
         self.mu_support = self.classifier.model.mu_support
         self.idx_support = self.classifier.model.idx_support
         self.support_vectors = self.X[self.idx_support]
+        self.decision = self.classifier.decision()[0]
         self.inducing_points = self.classifier.inducing_points
     
     def fit_ocsvmshap(self, X: FloatTensor, num_coalitions: int) -> None:
@@ -39,9 +40,9 @@ class OCSVMSHAP(object):
         self.weights, self.coalitions = compute_weights_and_coalitions(num_features=X.shape[1], num_coalitions=num_coalitions)
         self.conditional_mean_projections = self._compute_conditional_mean_projections(X)
         self.mean_stochastic_value_function_evaluations = torch.cat([
-            torch.ones((1, X.shape[0])) * torch.tensor(self.rho),
+            torch.ones((1, X.shape[0])) * self.decision.mean(),
             torch.einsum(
-                'ijk,j->ik', self.conditional_mean_projections, torch.tensor(self.mu_support)
+                'ijk,j->ik', self.conditional_mean_projections, torch.tensor(self.decision).float()
             )
         ])
     
@@ -49,7 +50,8 @@ class OCSVMSHAP(object):
         return _solve_weighted_least_square_regression(SHAP_weights=self.weights,
                                                             coalitions=self.coalitions,
                                                             regression_target=self.mean_stochastic_value_function_evaluations
-                                                            ) * self.scale
+                                                            ) # * self.scale  
+    # there is no need to stnadardize the data in ocsvm -> there is no target variable
     
     def _compute_conditional_mean_projections(self, X):
         minus_first_coalitions = self.coalitions[1:]  # remove the first row of 0s.
@@ -88,9 +90,9 @@ class OCSVMSHAP(object):
         K_SS = self.classifier.model.rbf_kernel(self.inducing_points[:, S], self.inducing_points[:, S])
         # Add diagonal regularization term
         regularization_term = self.classifier.num_inducing_points * self.cme_regularisation
-        K_SS_regularized = K_SS + regularization_term * np.eye(K_SS.shape[0])
+        K_SS_regularized = np.add(K_SS, regularization_term * np.eye(K_SS.shape[0]))
         # Convert to torch.Tensor
-        K_SS_regularized = torch.from_numpy(K_SS_regularized).float()
+        K_SS_regularized = K_SS_regularized.float()
         k_inducingXS_XS = torch.from_numpy(k_inducingXS_XS).float()
         # Compute the inverse of the regularized K_SS
         K_SS_inv = torch.inverse(K_SS_regularized)
