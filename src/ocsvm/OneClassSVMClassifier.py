@@ -88,7 +88,7 @@ class OneClassSVMModel:
         
     def plot_ocsvm(self, X):
         # Compute decision function on a grid
-        X1, X2 = np.mgrid[-2:5.1:0.2, -2:5.1:0.2]
+        X1, X2 = np.mgrid[-5:5.1:0.2, -5:5.1:0.2]
         na, nb = X1.shape
         X_test = np.c_[np.reshape(X1, (na * nb, 1)),
                     np.reshape(X2, (na * nb, 1))]
@@ -109,8 +109,8 @@ class OneClassSVMModel:
         cs = plt.contour(X1, X2, Z, [0], colors='y', linewidths=2, zorder=10)
         plt.xlabel('x1')
         plt.ylabel('x2')
-        plt.xlim([-2, 5])
-        plt.ylim([-2, 5])
+        plt.xlim([-5, 5])
+        plt.ylim([-5, 5])
 
 
 @dataclass()
