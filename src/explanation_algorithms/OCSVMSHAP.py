@@ -26,8 +26,7 @@ class OCSVMSHAP(object):
     num_cpus: int = field(init=False, default=6)
     
     def __post_init__(self):
-        # self.kernel_lengthscales = 1.0 / self.classifier.gamma
-        # self.classifier.fit()
+        self.classifier.fit()
         self.rho = self.classifier.model.rho
         self.mu_support = self.classifier.model.mu_support
         self.idx_support = self.classifier.model.idx_support
@@ -36,7 +35,6 @@ class OCSVMSHAP(object):
         self.inducing_points = self.classifier.inducing_points
     
     def fit_ocsvmshap(self, X: FloatTensor, num_coalitions: int) -> None:
-        # X = self._scaled_by_lengthscales(X)
         self.weights, self.coalitions = compute_weights_and_coalitions(num_features=X.shape[1], num_coalitions=num_coalitions)
         self.conditional_mean_projections = self._compute_conditional_mean_projections(X)
         self.mean_stochastic_value_function_evaluations = torch.cat([
@@ -70,19 +68,6 @@ class OCSVMSHAP(object):
         conditional_mean_projection = self._compute_conditional_mean_projection(S, X)
         return conditional_mean_projection.T @ torch.tensor(self.mu_support)
     
-    # def _compute_conditional_mean_projection(self, S: BoolTensor, X: FloatTensor):
-    #     k_inducingXS_XS = self._rbf_kernel(self.support_vectors[:, S], X[:, S])
-    #     K_SS = self._rbf_kernel(self.support_vectors[:, S])
-    #     return np.linalg.solve(K_SS + self.classifier.nu * np.eye(K_SS.shape[0]), k_inducingXS_XS.T)
-    
-    # def _compute_conditional_mean_projection(self, S: BoolTensor, X: FloatTensor):
-    #     """ compute the expression k_S(x, X)(K_SS + lambda I)^{-1} that can be reused multiple times
-    #     """
-    #     k_inducingXS_XS = self.classifier.model.rbf_kernel(self.inducing_points[:, S], X[:, S])
-    #     return (torch.from_numpy(self.classifier.model.rbf_kernel(self.inducing_points[:, S]))).add_diag(
-    #         self.model.num_inducing_points * self.cme_regularisation).inv_matmul(
-    #         k_inducingXS_XS.evaluate()).detach()
-    
 
     def _compute_conditional_mean_projection(self, S: BoolTensor, X: FloatTensor):
         k_inducingXS_XS = self.classifier.model.rbf_kernel(self.inducing_points[:, S], X[:, S])
@@ -100,15 +85,6 @@ class OCSVMSHAP(object):
         conditional_mean_projection = K_SS_inv.matmul(k_inducingXS_XS)
         return conditional_mean_projection.detach()
 
-
-    # def _rbf_kernel(self, X1, X2=None):
-    #     if X2 is None:
-    #         X2 = X1
-    #     return pairwise_distances(X1, X2, metric=lambda x, y: np.exp(-self.classifier.gamma * np.linalg.norm(x - y)**2))
-    
-   
-    # def _scaled_by_lengthscales(self, X: torch.FloatTensor) -> FloatTensor:
-    #     return X / self.kernel_lengthscales
 
 def _solve_weighted_least_square_regression(SHAP_weights: FloatTensor,
                                             coalitions: BoolTensor,
