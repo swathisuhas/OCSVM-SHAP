@@ -30,9 +30,6 @@ class OneClassSVMModel:
     def _rbf_metric(self, x, y):
         return np.exp(-self.gamma * linalg.norm(x - y, 2)**2)
         
-    def fast_rbf_kernel(self, X1, X2):
-        return pairwise_distances(X1, X2, metric=self._rbf_metric)
-    
     def qp(self, P, q, A, b, C):   # quadratic programming problem solver
         # Gram matrix
         n = P.shape[0]
@@ -63,7 +60,7 @@ class OneClassSVMModel:
     
     def compute_rho(self, K):
         index = int(np.argmin(self.mu_support))
-        K_support = K[self.idx_support][:, self.idx_support] # rho = sum(mu_i.(K(x_i, x_j)) K between that support vectorn and all support vectors before it
+        K_support = K[self.idx_support][:, self.idx_support] 
         self.rho = self.mu_support.dot(K_support[index])
         return self.rho
 
@@ -71,7 +68,6 @@ class OneClassSVMModel:
         K = self.rbf_kernel(X, X)
         self.mu_support, self.idx_support = self.ocsvm_solver(K)
         self.rho = self.compute_rho(K)
-        # self.plot_ocsvm(X)
         decision, y_pred = self.decision_function(X)
         return decision, y_pred
 
@@ -83,6 +79,7 @@ class OneClassSVMModel:
         y_pred = np.sign(decision)
         return decision, y_pred
     
+    # gives the sign of the decision function
     def predict(self, X):
         return np.sign(self.decision_function(X))
         
@@ -123,8 +120,9 @@ class OneClassSVMClassifier(object):
 
     def __post_init__(self):
         self.model = OneClassSVMModel(nu=self.nu, gamma=self.gamma)
+        self.inducing_points = self.X
         #update the dataset to have only sample size = num_inducing_points
-        self.inducing_points = compute_inducing_points(self.X, self.num_inducing_points)
+        # self.inducing_points = compute_inducing_points(self.X, self.num_inducing_points)
 
     def fit(self):
         return self.model.fit(self.inducing_points)
