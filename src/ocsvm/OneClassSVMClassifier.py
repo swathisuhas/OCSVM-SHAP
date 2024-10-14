@@ -3,7 +3,6 @@ import cvxopt
 from scipy import linalg
 from sklearn.metrics import pairwise_distances
 import matplotlib.pyplot as plt
-from src.utils.kernels.inducing_points import compute_inducing_points
 from torch import FloatTensor
 
 
@@ -11,12 +10,13 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 class OneClassSVMModel:
-    def __init__(self, nu=0.1, gamma=0.3):
+    def __init__(self, nu, gamma):
         self.nu = nu
         self.gamma = gamma
         self.rho = None
         self.mu_support = None
         self.idx_support = None
+        self.decision = None
     
     def rbf_kernel(self, X1, X2):
         n1 = X1.shape[0]
@@ -55,7 +55,7 @@ class OneClassSVMModel:
         C = 1. / (self.nu * n)
         mu = self.qp(P, q, A, b, C)
         self.idx_support = np.where(np.abs(mu) > 1e-5)[0] # if mu is greater than 1e-5 then it is considered a support vector
-        self.mu_support = mu[self.idx_support]
+        self.mu_support = mu[self.idx_support] * self.nu * len(K)  # multipling with nu * len(K) to match values from sklearn
         return self.mu_support, self.idx_support
     
     def compute_rho(self, K):
@@ -66,22 +66,13 @@ class OneClassSVMModel:
 
     def fit(self, X):
         K = self.rbf_kernel(X, X)
+        self.len_K = len(K)
         self.mu_support, self.idx_support = self.ocsvm_solver(K)
         self.rho = self.compute_rho(K)
-        decision, y_pred = self.decision_function(X)
-        return decision, y_pred
-
-    def decision_function(self, X):
         X_support = X[self.idx_support]
         G = self.rbf_kernel(X, X_support)
-        # Compute decision function
-        decision = G.dot(self.mu_support) - self.rho
-        y_pred = np.sign(decision)
-        return decision, y_pred
-    
-    # gives the sign of the decision function
-    def predict(self, X):
-        return np.sign(self.decision_function(X))
+        self.decision = G.dot(self.mu_support) - self.rho
+        return self.decision, np.sign(self.decision)
         
     def plot_ocsvm(self, X, x1, x2, y1, y2):
         # Compute decision function on a grid
@@ -113,25 +104,16 @@ class OneClassSVMModel:
 @dataclass()
 class OneClassSVMClassifier(object):
     X: FloatTensor
-    nu: float = 0.1
-    gamma: float = 0.3
+    nu: float
+    gamma: float
     model: Optional['OneClassSVMModel'] = field(init=False, default=None)
     num_inducing_points: int = field(default=None)
 
     def __post_init__(self):
         self.model = OneClassSVMModel(nu=self.nu, gamma=self.gamma)
-        self.inducing_points = self.X
-        #update the dataset to have only sample size = num_inducing_points
-        # self.inducing_points = compute_inducing_points(self.X, self.num_inducing_points)
 
     def fit(self):
-        return self.model.fit(self.inducing_points)
+        return self.model.fit(self.X)
 
     def plot(self, x1, x2, y1, y2):
-        return self.model.plot_ocsvm(self.inducing_points.numpy(), x1, x2, y1, y2)
-    
-    def predict(self):
-        return self.model.predict(self.inducing_points)
-    
-    def decision(self):
-        return self.model.decision_function(self.inducing_points)
+        return self.model.plot_ocsvm(self.X.numpy(), x1, x2, y1, y2)
