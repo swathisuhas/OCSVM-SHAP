@@ -83,9 +83,9 @@ class OneClassSVMModel:
     def predict(self, X):
         return np.sign(self.decision_function(X))
         
-    def plot_ocsvm(self, X):
+    def plot_ocsvm(self, X, x1, x2, y1, y2):
         # Compute decision function on a grid
-        X1, X2 = np.mgrid[-5:5.1:0.2, -5:5.1:0.2]
+        X1, X2 = np.mgrid[x1:x2+0.1:0.2, y1:y2+0.1:0.2]
         na, nb = X1.shape
         X_test = np.c_[np.reshape(X1, (na * nb, 1)),
                     np.reshape(X2, (na * nb, 1))]
@@ -106,8 +106,8 @@ class OneClassSVMModel:
         cs = plt.contour(X1, X2, Z, [0], colors='y', linewidths=2, zorder=10)
         plt.xlabel('x1')
         plt.ylabel('x2')
-        plt.xlim([-5, 5])
-        plt.ylim([-5, 5])
+        plt.xlim([x1, x2])
+        plt.ylim([y1, y2])
 
 
 @dataclass()
@@ -127,8 +127,8 @@ class OneClassSVMClassifier(object):
     def fit(self):
         return self.model.fit(self.inducing_points)
 
-    def plot(self):
-        return self.model.plot_ocsvm(self.inducing_points.numpy())
+    def plot(self, x1, x2, y1, y2):
+        return self.model.plot_ocsvm(self.inducing_points.numpy(), x1, x2, y1, y2)
     
     def predict(self):
         return self.model.predict(self.inducing_points)
