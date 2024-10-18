@@ -8,6 +8,8 @@ from tqdm import tqdm
 
 from src.ocsvm.OneClassSVMClassifier import OneClassSVMClassifier
 from src.utils.shapley_procedure.preparing_weights_and_coalitions import compute_weights_and_coalitions
+from src.utils.kernels.inducing_points import compute_inducing_points
+
 
 @dataclass(kw_only=True)
 class OCSVMSHAP(object):
@@ -31,8 +33,8 @@ class OCSVMSHAP(object):
         self.mu_support = self.classifier.model.mu_support
         self.idx_support = self.classifier.model.idx_support
         self.support_vectors = self.X[self.idx_support]
-        self.decision = self.classifier.decision()[0]
-        self.inducing_points = self.classifier.inducing_points
+        self.decision = self.classifier.model.decision
+        self.inducing_points = compute_inducing_points(self.X, self.classifier.num_inducing_points)
     
     def fit_ocsvmshap(self, X: FloatTensor, num_coalitions: int) -> None:
         self.weights, self.coalitions = compute_weights_and_coalitions(num_features=X.shape[1], num_coalitions=num_coalitions)
