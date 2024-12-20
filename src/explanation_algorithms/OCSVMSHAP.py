@@ -50,8 +50,7 @@ class OCSVMSHAP(object):
         return _solve_weighted_least_square_regression(SHAP_weights=self.weights,
                                                             coalitions=self.coalitions,
                                                             regression_target=self.mean_stochastic_value_function_evaluations
-                                                            ) # * self.scale  
-    # there is no need to stnadardize the data in ocsvm -> there is no target variable
+                                                            )
     
     def _compute_conditional_mean_projections(self, X):
         minus_first_coalitions = self.coalitions[1:]  # remove the first row of 0s.
