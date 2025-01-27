@@ -17,7 +17,7 @@ class OCSVMSHAP(object):
     X: FloatTensor
     classifier: OneClassSVMClassifier
     scale: FloatTensor = field(init=False, default=None)
-    inducing_points = None
+    inducing_points = None # is set to all points, since we do not want to miss picking the outlier
     
     mean_stochastic_value_function_evaluations: Tensor = field(init=False)
     conditional_mean_projections: FloatTensor | Tensor = field(init=False)
@@ -63,6 +63,17 @@ class OCSVMSHAP(object):
         )
     
     def _compute_value_function_at_coalition(self, S: BoolTensor, X: FloatTensor):
+        """compute the value function E[f(X) | X_S=x_S]
+
+        Parameters
+        ----------
+        X: size = [num_data x num_features]
+        S: binary vector of coalition
+
+        Returns
+        -------
+        the conditional mean
+        """
         if S.sum() == 0:  # no active feature
             return (torch.ones((1, X.shape[0])) * torch.tensor(self.rho)).squeeze()
         
@@ -71,6 +82,8 @@ class OCSVMSHAP(object):
     
 
     def _compute_conditional_mean_projection(self, S: BoolTensor, X: FloatTensor):
+        """ compute the expression k_S(x, X)(K_SS + lambda I)^{-1} that can be reused multiple times
+        """
         k_inducingXS_XS = self.classifier.model.rbf_kernel(self.inducing_points[:, S], X[:, S])
         # Compute K_SS
         K_SS = self.classifier.model.rbf_kernel(self.inducing_points[:, S], self.inducing_points[:, S])
