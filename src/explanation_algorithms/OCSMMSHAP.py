@@ -12,7 +12,7 @@ from src.utils.kernels.inducing_points import compute_inducing_points
 
 
 @dataclass(kw_only=True)
-class OCSVMSHAP(object):
+class OCSMMSHAP(object):
     """Run the SHAP algorithm to explain the output of a OneClassSMMClassifier model."""
     mu: FloatTensor
     classifier: OneClassSMMClassifier
