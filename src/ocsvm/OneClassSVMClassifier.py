@@ -14,7 +14,7 @@ class OneClassSVMModel:
         self.nu = nu
         self.gamma = gamma
         self.rho = None
-        self.mu_support = None
+        self.alpha_support = None
         self.idx_support = None
         self.decision = None
     
@@ -53,25 +53,25 @@ class OneClassSVMModel:
         A = np.matrix(np.ones(n))
         b = 1.
         C = 1. / (self.nu * n)
-        mu = self.qp(P, q, A, b, C)
-        self.idx_support = np.where(np.abs(mu) > 1e-5)[0] # if mu is greater than 1e-5 then it is considered a support vector
-        self.mu_support = mu[self.idx_support] * self.nu * len(K)  # multipling with nu * len(K) to match values from sklearn
-        return self.mu_support, self.idx_support
+        alpha = self.qp(P, q, A, b, C)
+        self.idx_support = np.where(np.abs(alpha) > 1e-5)[0] # if alpha is greater than 1e-5 then it is considered a support vector
+        self.alpha_support = alpha[self.idx_support] * self.nu * len(K)  # multipling with nu * len(K) to match values from sklearn
+        return self.alpha_support, self.idx_support
     
     def compute_rho(self, K):
-        index = int(np.argmin(self.mu_support))
+        index = int(np.argmin(self.alpha_support))
         K_support = K[self.idx_support][:, self.idx_support] 
-        self.rho = self.mu_support.dot(K_support[index])
+        self.rho = self.alpha_support.dot(K_support[index])
         return self.rho
 
     def fit(self, X):
         K = self.rbf_kernel(X, X)
         self.len_K = len(K)
-        self.mu_support, self.idx_support = self.ocsvm_solver(K)
+        self.alpha_support, self.idx_support = self.ocsvm_solver(K)
         self.rho = self.compute_rho(K)
         X_support = X[self.idx_support]
         G = self.rbf_kernel(X, X_support)
-        self.decision = G.dot(self.mu_support) - self.rho
+        self.decision = G.dot(self.alpha_support) - self.rho
         return self.decision, np.sign(self.decision)
         
     def plot_ocsvm(self, X, x1, x2, y1, y2):
@@ -85,7 +85,7 @@ class OneClassSVMModel:
         X_support = X[self.idx_support]
         G = self.rbf_kernel(X_test, X_support)
         # Compute decision function
-        decision = G.dot(self.mu_support) - self.rho # rho is needed only for decion boundary not for finding mus)
+        decision = G.dot(self.alpha_support) - self.rho # rho is needed only for decion boundary not for finding alphas)
 
         # Compute predict label
         y_pred = np.sign(decision)
