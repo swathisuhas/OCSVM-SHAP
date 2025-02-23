@@ -66,7 +66,7 @@ class OneClassSVMModel:
 
     def fit(self, X):
         K = self.rbf_kernel(X, X)
-        self.len_K = len(K)
+        # self.len_K = len(K) # i think not being used-> check again
         self.alpha_support, self.idx_support = self.ocsvm_solver(K)
         self.rho = self.compute_rho(K)
         X_support = X[self.idx_support]
