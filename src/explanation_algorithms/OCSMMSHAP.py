@@ -15,48 +15,47 @@ from src.utils.kernels.inducing_points import compute_inducing_points
 @dataclass(kw_only=True)
 class OCSMMSHAP(object):
     """Run the SHAP algorithm to explain the output of a OneClassSMMClassifier model."""
-    X: List[FloatTensor]
+    X: List[FloatTensor]  # Each element is a dataset representing a group
     classifier: OneClassSMMClassifier
-    scale: FloatTensor = field(init=False, default=None)
-    inducing_points = None # is set to all points, since we do not want to miss picking the outlier
-    K = None
+    inducing_points: List[FloatTensor] = field(init=False)
 
     mean_stochastic_value_function_evaluations: Tensor = field(init=False)
     conditional_mean_projections: FloatTensor | Tensor = field(init=False)
     coalitions: BoolTensor = field(init=False)
     weights: FloatTensor = field(init=False)
-    
+
     cme_regularisation: FloatTensor = field(init=False, default=torch.tensor(1e-4).float())
     num_cpus: int = field(init=False, default=6)
     
     def __post_init__(self):
         self.classifier.fit()
         self.rho = self.classifier.model.rho
-        self.alpha_support = self.classifier.model.alpha_support
+        self.mu_support = self.classifier.model.alpha_support
         self.idx_support = self.classifier.model.idx_support
         self.support_vectors = [self.X[i] for i in self.idx_support]
         self.decision = self.classifier.model.decision
-        self.inducing_points = self.X #compute_inducing_points(self.X, self.classifier.num_inducing_points)
+        self.inducing_points = self.X 
 
     def fit_ocsmmshap(self, X: List[FloatTensor], num_coalitions: int) -> None:
-        num_total_points = sum(dataset.shape[0] for dataset in X)  # 1000 if 20 groups × 50 points
-
-        # Compute SHAP weights and coalitions
-        num_features = X[0].shape[1]  # Assumes all datasets have the same feature count
+        num_groups = len(X) 
+        num_features = X[0].shape[1]
+        
         self.weights, self.coalitions = compute_weights_and_coalitions(num_features=num_features, num_coalitions=num_coalitions)
-
-        # Compute conditional mean projections
         self.conditional_mean_projections = self._compute_conditional_mean_projections(X)
+        
+        decision_tensor = torch.tensor(self.decision, dtype=torch.float32) 
 
-        # Expand self.decision (20 values) to match 1000 points (50 per dataset)
-        expanded_decision = torch.tensor(self.decision).float().repeat_interleave(50)  # Shape (1000,)
+        first_term = decision_tensor.mean().expand(1, num_groups)
 
-        # Compute mean_stochastic_value_function_evaluations
-        self.mean_stochastic_value_function_evaluations = torch.cat([
-            torch.ones((1, num_total_points)) * expanded_decision.mean(),  # Shape (1, 1000)
-            torch.einsum('ijk,j->ik', self.conditional_mean_projections, expanded_decision)  # Shape (num_coalitions, 1000)
-        ])
-    
+        second_term = torch.einsum(
+            'ijk,j->ik', 
+            self.conditional_mean_projections,
+            decision_tensor
+        ) 
+
+        self.mean_stochastic_value_function_evaluations = torch.cat([first_term, second_term])
+ 
+
     def return_deterministic_shapley_values(self) -> FloatTensor:
         return _solve_weighted_least_square_regression(SHAP_weights=self.weights,
                                                             coalitions=self.coalitions,
@@ -64,55 +63,33 @@ class OCSMMSHAP(object):
                                                             )
     
     def _compute_conditional_mean_projections(self, X):
-        minus_first_coalitions = self.coalitions[1:]  # remove the first row of 0s.
-        compute_conditional_mean_projections = lambda S: self._compute_conditional_mean_projection(S.bool(), X)
-        return torch.stack(
-            Parallel(n_jobs=self.num_cpus)(
-                delayed(compute_conditional_mean_projections)(S.bool())
-                for S in tqdm(minus_first_coalitions)
-            )
+        minus_first_coalitions = self.coalitions[1:]  
+
+        def compute_projection(S):
+            """Compute projections for all groups given a coalition mask S."""
+            return self._compute_conditional_mean_projection(S.bool(), X)
+        projections_list = Parallel(n_jobs=self.num_cpus)(
+            delayed(compute_projection)(S) for S in tqdm(minus_first_coalitions)
         )
-    
-    def _compute_value_function_at_coalition(self, S: BoolTensor, X: List[FloatTensor]):
-        """compute the value function E[f(X) | X_S=x_S]
-
-        Parameters
-        ----------
-        X: size = [num_data x num_features]
-        S: binary vector of coalition
-
-        Returns
-        -------
-        the conditional mean
-        """
-        if S.sum() == 0:  # no active feature
-            return (torch.ones((1, X.shape[0])) * torch.tensor(self.rho)).squeeze()
-        
-        conditional_mean_projection = self._compute_conditional_mean_projection(S, X)
-        return conditional_mean_projection.T @ torch.tensor(self.alpha_support)
-    
+        return torch.stack(projections_list)
 
     def _compute_conditional_mean_projection(self, S: BoolTensor, X: List[FloatTensor]):
         """ compute the expression k_S(x, X)(K_SS + lambda I)^{-1} that can be reused multiple times
         """
-        X_S = [dataset[:, S] for dataset in X]  # Extract only selected features for each dataset
-        inducing_S = [ind[:, S] for ind in self.inducing_points]
+        S = S.bool()  
 
-        # X_S = torch.cat(X_S, dim=0) 
-        # inducing_S = torch.cat(inducing_S, dim=0)
+        X_filtered = [group[:, S] for group in X] 
+        inducing_filtered = [self.inducing_points[i][:, S] for i in range(len(self.inducing_points))]
+        k_inducingXS_XS = self.classifier.model.compute_kappa_matrix(inducing_filtered, X_filtered)
+        K_SS = self.classifier.model.compute_kappa_matrix(inducing_filtered, inducing_filtered)
 
-        k_inducingXS_XS = self.classifier.model.compute_kappa_matrix(inducing_S, X_S)
-        # Compute K_SS
-        K_SS = self.classifier.model.compute_kappa_matrix(inducing_S, inducing_S)
-        # Add diagonal regularization term
+        k_inducingXS_XS = torch.tensor(k_inducingXS_XS).float()
+        K_SS = torch.tensor(K_SS).float()
+
         regularization_term = self.classifier.num_inducing_points * self.cme_regularisation
-        K_SS_regularized = np.add(K_SS, regularization_term * np.eye(K_SS.shape[0]))
-        # Convert to torch.Tensor
-        K_SS_regularized = K_SS_regularized.float()
-        k_inducingXS_XS = torch.from_numpy(k_inducingXS_XS).float()
-        # Compute the inverse of the regularized K_SS
+        K_SS_regularized = K_SS + regularization_term * torch.eye(K_SS.shape[0]).float()
+
         K_SS_inv = torch.inverse(K_SS_regularized)
-        # Perform matrix multiplication
         conditional_mean_projection = K_SS_inv.matmul(k_inducingXS_XS)
         return conditional_mean_projection.detach()
 
