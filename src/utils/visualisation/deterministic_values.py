@@ -22,5 +22,5 @@ def bar_plot(shapley_values: torch.Tensor,
                  query_data: torch.Tensor,
                  **kwargs
                  ):
-    return shap.bar_plot(shapley_values.T.numpy(), query_data.numpy(), show=False,
+    return shap.bar_plot(shapley_values.T, query_data, show=False,
                              **kwargs)

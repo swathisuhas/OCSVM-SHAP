@@ -1,65 +1,59 @@
 import numpy as np
 import cvxopt 
+from sklearn.metrics import pairwise_distances
 from torch import FloatTensor
 from scipy import linalg
 from dataclasses import dataclass, field
 from typing import Optional
 from scipy.spatial.distance import pdist, squareform
 import torch
-from src.ocsvm.OneClassSVMClassifier import ocsvm_solver, compute_rho
 
-class OneClassSMMModel:
-    def __init__(self, nu, gamma_x, gamma_d):
-        self.nu = nu
-        self.gamma_x = gamma_x  # Gamma for the instance-level kernel
-        self.gamma_d = gamma_d  # Gamma for the distribution-level kernel
-        self.alpha_support = None
-        self.rho = None
-        self.idx_support = None
-        self.decision = None
-
-    def compute_kappa_matrix(self, datasets_1, datasets_2):
-        num_sets_1, num_sets_2 = len(datasets_1), len(datasets_2)
-        kappa_matrix = np.zeros((num_sets_1, num_sets_2))
-        for i, group_1 in enumerate(datasets_1):
-            for j, group_2 in enumerate(datasets_2):
-                mmd2 = compute_mmd_squared(group_1, group_2, self.gamma_x)
-                kappa_matrix[i, j] = np.exp(-self.gamma_d * mmd2)
-        return kappa_matrix
-    
-    def fit(self, datasets):
-        kappa = self.compute_kappa_matrix(datasets, datasets) # correct
-        self.alpha_support, self.idx_support = ocsvm_solver(kappa, self.nu)
-        #print(kappa)
-        print(self.alpha_support)
-        print(self.idx_support)
-        self.rho = compute_rho(kappa, self.alpha_support, self.idx_support)
-        print(self.rho)
-        datasets_support = [datasets[i] for i in self.idx_support] 
-        G = self.compute_kappa_matrix(datasets, datasets_support) # simillarity between all groups and the support groups
-        self.decision = G.dot(self.alpha_support) - self.rho
-        print(self.decision+self.rho)
-        # self.decision = (self.decision - np.mean(self.decision)) / np.std(self.decision)
-        return self.decision, np.sign(self.decision)  # decision is wrong
-    
-@dataclass()
 class OneClassSMMClassifier:
-    datasets: list[FloatTensor]
-    nu: FloatTensor
-    gamma_x: FloatTensor = field(init=False, default=torch.tensor(0.1).float())
-    gamma_d: FloatTensor = field(init=False, default=torch.tensor(0.1).float())
-    model: Optional[OneClassSMMModel] = field(init=False, default=None)
-
-    def __post_init__(self):
+    def __init__(self, nu):
+        self.nu = nu
+        self.datasets = None
+        self.gamma_x = None
+        self.gamma_d = None
+        
+    def fit(self, datasets):
+        self.datasets = datasets
         self.gamma_x = self.find_best_gamma_x()
         self.gamma_d = self.find_best_gamma_d()
-        print(self.gamma_x)
-        print(self.gamma_d)
-        self.model = OneClassSMMModel(nu=self.nu, gamma_x=self.gamma_x, gamma_d=self.gamma_d)
 
-    def fit(self):
-        return self.model.fit(self.datasets)
+        n_sets = len(self.datasets)
+        kappa = self.kappa_matrix(self.datasets, self.datasets, self.gamma_d)
+        ones = np.ones(shape=(n_sets,1))
+        zeros = np.zeros(shape=(n_sets,1))
+        P = cvxopt.matrix(kappa)
+        q = cvxopt.matrix(zeros)
+        G = cvxopt.matrix(np.vstack((-np.identity(n_sets), np.identity(n_sets))))
+        h = cvxopt.matrix(np.vstack((zeros, self.nu*ones)))
+        A = cvxopt.matrix(ones.T)
+        b = cvxopt.matrix(1.0)
+      
+        cvxopt.solvers.options['show_progress'] = False
+        solution = cvxopt.solvers.qp(P, q, G, h, A, b)
+        
+        self.alpha =np.ravel(solution['x'])
+        self.dual_objective = np.ravel(solution['primal objective'])
+        
+    def predict(self, test_dataset):
+        self.kappa = self.kappa_matrix(self.datasets, test_dataset, self.gamma_d)
+        self.support_index = np.squeeze(np.where(self.alpha > 1e-5))
+        ones = np.ones(shape=(len(test_dataset), 1))
+        cross_prod = np.matmul(self.kappa[self.support_index,:].T, np.expand_dims(self.alpha[self.support_index],axis=1))
+        # rho = self.compute_rho() # rho is 2*dual_objective
+        # print(self.dual_objective) # because the minimum function value is used for rho
+        decision = (2*cross_prod)-self.dual_objective*ones-ones 
+        return decision.ravel(), np.sign(decision).ravel()
     
+    # def compute_rho(self):
+    #     valid_support_index = np.where((self.alpha > 1e-5) & (self.alpha < (1 / (self.nu * len(self.datasets)))))[0]
+    #     print(valid_support_index)
+    #     kappa_support = self.kappa_matrix(self.datasets, self.datasets[valid_support_index], self.gamma_d)
+    #     rho = np.mean(np.sum(self.alpha[:, None] * kappa_support, axis=0))
+    #     return rho
+
     def find_best_gamma_x(self):
         gamma_x_values = []
         for group in self.datasets: 
@@ -72,29 +66,40 @@ class OneClassSMMClassifier:
         group_distances = []
         for i in range(len(self.datasets)):
             for j in range(i + 1, len(self.datasets)):
-                dist = compute_mmd_squared(self.datasets[i], self.datasets[j], self.gamma_x)
+                dist = self.compute_mmd_squared(self.datasets[i], self.datasets[j], self.gamma_x)
                 group_distances.append(dist)
         return  1 / (np.median(group_distances))
     
-def compute_mmd_squared(X, Y, gamma):
-    """MMD^2 = K_XX + K_YY - 2*K_XY"""
-    n, m = len(X), len(Y)
-    K_XX = rbf_kernel(X, X, gamma) 
-    K_YY = rbf_kernel(Y, Y, gamma) 
-    K_XY = rbf_kernel(X, Y, gamma)  
+    def compute_mmd_squared(self,X, Y, gamma):
+        n, m = len(X), len(Y)
+        K_XX = self.kernel(X, X, gamma) 
+        K_YY = self.kernel(Y, Y, gamma) 
+        K_XY = self.kernel(X, Y, gamma)  
 
-    mmd2 = (K_XX / (n * n)) + (K_YY / (m * m)) - (2 * K_XY / (n * m))
-    return mmd2 # is a real value 
-    
+        mmd2 = (K_XX.sum() / (n * n)) + (K_YY.sum() / (m * m)) - (2 * K_XY.sum() / (n * m))
+        return mmd2 # is a real value 
 
-def rbf_kernel(X1, X2, gamma):
-        n1 = X1.shape[0]
-        n2 = X2.shape[0]
-        K = 0
+    def kernel(self, X, Z, gamma):
+        dists_2 = np.sum(np.square(X)[:,np.newaxis,:],axis=2)-2*X.dot(Z.T)+np.sum(np.square(Z)[:,np.newaxis,:],axis=2).T
+        k_XZ = np.exp(-gamma*dists_2)
+        return k_XZ
+
+    def measureNormSquare(self, S, gamma):
+        n = len(S)
+        K = np.zeros(shape=(n,1))
+        for i in range(n):
+            K[i,0] = np.average(self.kernel(S[i],S[i], gamma))
+        return K
+
+    def kappa_matrix(self, S1, S2, gamma):
+        n1, n2 = len(S1), len(S2)
+        Kcross = np.zeros(shape=(n1,n2))
         for i in range(n1):
             for j in range(n2):
-                K = K + rbf_metric(X1[i], X2[j], gamma)
-        return K 
-
-def rbf_metric(x, y, gamma):
-    return np.exp(-gamma * linalg.norm(x - y, 2)**2)
+                k=self.kernel(S1[i],S2[j], self.gamma_x)
+                Kcross[i,j] = np.average(k)
+        normK1 = self.measureNormSquare(S1, gamma)
+        normK2 = self.measureNormSquare(S2, gamma)
+        normalizer = np.sqrt(normK1*normK2.T)
+        Kcross = np.multiply(Kcross, np.reciprocal(normalizer))
+        return Kcross

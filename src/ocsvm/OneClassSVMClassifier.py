@@ -4,7 +4,7 @@ from scipy import linalg
 from sklearn.metrics import pairwise_distances
 import matplotlib.pyplot as plt
 from torch import FloatTensor
-
+from scipy.spatial.distance import pdist, squareform
 
 from dataclasses import dataclass, field
 from typing import Optional
@@ -33,9 +33,12 @@ class OneClassSVMModel:
     def fit(self, X):
         K = self.rbf_kernel(X, X)
         self.alpha_support, self.idx_support = ocsvm_solver(K, self.nu)
+        print(self.alpha_support)
+        print(self.idx_support)
         self.rho = compute_rho(K, self.alpha_support, self.idx_support)
         X_support = X[self.idx_support]
         G = self.rbf_kernel(X, X_support)
+        print(G)
         self.decision = G.dot(self.alpha_support) - self.rho
         return self.decision, np.sign(self.decision)
         
@@ -70,11 +73,13 @@ class OneClassSVMModel:
 class OneClassSVMClassifier(object):
     X: FloatTensor
     nu: float
-    gamma: float
+    gamma: float = field(default=None)
     model: Optional['OneClassSVMModel'] = field(init=False, default=None)
     num_inducing_points: int = field(default=None)
 
     def __post_init__(self):
+        self.gamma = self.find_best_gamma()
+        print(self.gamma)
         self.model = OneClassSVMModel(nu=self.nu, gamma=self.gamma)
 
     def fit(self):
@@ -82,6 +87,11 @@ class OneClassSVMClassifier(object):
 
     def plot(self, x1, x2, y1, y2):
         return self.model.plot_ocsvm(self.X.numpy(), x1, x2, y1, y2)
+    
+    def find_best_gamma(self):
+        pairwise_sq_dists = squareform(pdist(self.X, 'sqeuclidean'))  # Squared Euclidean distances
+        median_dist = np.median(pairwise_sq_dists[pairwise_sq_dists > 0])  # Ignore zero distances
+        return 1/median_dist 
     
 def qp(P, q, A, b, C):   # quadratic programming problem solver
         # Gram matrix
