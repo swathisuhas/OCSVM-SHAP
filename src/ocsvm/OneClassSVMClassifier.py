@@ -1,7 +1,6 @@
 import numpy as np
 import cvxopt 
 from scipy import linalg
-from sklearn.metrics import pairwise_distances
 import matplotlib.pyplot as plt
 from torch import FloatTensor
 from scipy.spatial.distance import pdist, squareform

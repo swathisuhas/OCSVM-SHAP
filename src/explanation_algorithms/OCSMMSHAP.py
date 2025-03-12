@@ -1,6 +1,4 @@
 from dataclasses import dataclass, field
-from typing import Optional
-import numpy as np
 import torch
 from joblib import Parallel, delayed
 from torch import FloatTensor, BoolTensor, Tensor
