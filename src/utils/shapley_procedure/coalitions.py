@@ -1,6 +1,5 @@
 import numpy as np
 
-
 def build_coalitions(num_features: int, num_coalitions: int) -> np.ndarray:
     max_range = min(2 ** num_features, 2 ** 63 - 1)
 

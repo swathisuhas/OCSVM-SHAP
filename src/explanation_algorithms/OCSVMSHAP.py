@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from typing import Optional
 import numpy as np
 import torch
 from joblib import Parallel, delayed
@@ -8,33 +7,21 @@ from tqdm import tqdm
 
 from src.ocsvm.OneClassSVMClassifier import OneClassSVMClassifier
 from src.utils.shapley_procedure.preparing_weights_and_coalitions import compute_weights_and_coalitions
-from src.utils.kernels.inducing_points import compute_inducing_points
-
 
 @dataclass(kw_only=True)
 class OCSVMSHAP(object):
     """Run the SHAP algorithm to explain the output of a OneClassSVMClassifier model."""
     X: FloatTensor
     classifier: OneClassSVMClassifier
-    scale: FloatTensor = field(init=False, default=None)
-    inducing_points = None # is set to all points, since we do not want to miss picking the outlier
-    
     mean_stochastic_value_function_evaluations: Tensor = field(init=False)
     conditional_mean_projections: FloatTensor | Tensor = field(init=False)
     coalitions: BoolTensor = field(init=False)
     weights: FloatTensor = field(init=False)
-    
     cme_regularisation: FloatTensor = field(init=False, default=torch.tensor(1e-4).float())
     num_cpus: int = field(init=False, default=6)
     
     def __post_init__(self):
-        self.classifier.fit()
-        self.rho = self.classifier.model.rho
-        self.mu_support = self.classifier.model.alpha_support
-        self.idx_support = self.classifier.model.idx_support
-        self.support_vectors = self.X[self.idx_support]
         self.decision = self.classifier.model.decision
-        self.inducing_points = compute_inducing_points(self.X, self.classifier.num_inducing_points)
     
     def fit_ocsvmshap(self, X: FloatTensor, num_coalitions: int) -> None:
         self.weights, self.coalitions = compute_weights_and_coalitions(num_features=X.shape[1], num_coalitions=num_coalitions)
@@ -61,42 +48,17 @@ class OCSVMSHAP(object):
                 for S in tqdm(minus_first_coalitions)
             )
         )
-    
-    def _compute_value_function_at_coalition(self, S: BoolTensor, X: FloatTensor):
-        """compute the value function E[f(X) | X_S=x_S]
-
-        Parameters
-        ----------
-        X: size = [num_data x num_features]
-        S: binary vector of coalition
-
-        Returns
-        -------
-        the conditional mean
-        """
-        if S.sum() == 0:  # no active feature
-            return (torch.ones((1, X.shape[0])) * torch.tensor(self.rho)).squeeze()
-        
-        conditional_mean_projection = self._compute_conditional_mean_projection(S, X)
-        return conditional_mean_projection.T @ torch.tensor(self.mu_support)
-    
 
     def _compute_conditional_mean_projection(self, S: BoolTensor, X: FloatTensor):
         """ compute the expression k_S(x, X)(K_SS + lambda I)^{-1} that can be reused multiple times
         """
-        k_inducingXS_XS = self.classifier.model.rbf_kernel(self.inducing_points[:, S], X[:, S])
-        # Compute K_SS
-        K_SS = self.classifier.model.rbf_kernel(self.inducing_points[:, S], self.inducing_points[:, S])
-        # Add diagonal regularization term
-        regularization_term = self.classifier.num_inducing_points * self.cme_regularisation
+        K_SS = self.classifier.model.rbf_kernel(self.X[:, S], self.X[:, S])
+        regularization_term = len(X) * self.cme_regularisation
         K_SS_regularized = np.add(K_SS, regularization_term * np.eye(K_SS.shape[0]))
-        # Convert to torch.Tensor
         K_SS_regularized = K_SS_regularized.float()
-        k_inducingXS_XS = torch.from_numpy(k_inducingXS_XS).float()
-        # Compute the inverse of the regularized K_SS
+        K_SS = torch.from_numpy(K_SS).float()
         K_SS_inv = torch.inverse(K_SS_regularized)
-        # Perform matrix multiplication
-        conditional_mean_projection = K_SS_inv.matmul(k_inducingXS_XS)
+        conditional_mean_projection = K_SS_inv.matmul(K_SS)
         return conditional_mean_projection.detach()
 
 

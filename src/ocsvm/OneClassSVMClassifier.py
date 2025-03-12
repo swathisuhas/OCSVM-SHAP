@@ -1,10 +1,9 @@
 import numpy as np
 import cvxopt 
 from scipy import linalg
-from sklearn.metrics import pairwise_distances
 import matplotlib.pyplot as plt
 from torch import FloatTensor
-
+from scipy.spatial.distance import pdist, squareform
 
 from dataclasses import dataclass, field
 from typing import Optional
@@ -29,48 +28,16 @@ class OneClassSVMModel:
 
     def _rbf_metric(self, x, y):
         return np.exp(-self.gamma * linalg.norm(x - y, 2)**2)
-        
-    def qp(self, P, q, A, b, C):   # quadratic programming problem solver
-        # Gram matrix
-        n = P.shape[0]
-        P = cvxopt.matrix(P)
-        q = cvxopt.matrix(q)
-        A = cvxopt.matrix(A)
-        b = cvxopt.matrix(b)
-        G = cvxopt.matrix(np.concatenate(
-            [np.diag(np.ones(n) * -1), np.diag(np.ones(n))], axis=0))
-        h = cvxopt.matrix(np.concatenate([np.zeros(n), C * np.ones(n)]))
-
-        # Solve QP problem
-        cvxopt.solvers.options['show_progress'] = False
-        solution = cvxopt.solvers.qp(P, q, G, h, A, b, solver='mosec')
-        return np.ravel(solution['x'])
-    
-    def ocsvm_solver(self, K):  # nu default is 0.1
-        n = len(K)
-        P = K
-        q = np.zeros(n)
-        A = np.matrix(np.ones(n))
-        b = 1.
-        C = 1. / (self.nu * n)
-        alpha = self.qp(P, q, A, b, C)
-        self.idx_support = np.where(np.abs(alpha) > 1e-5)[0] # if alpha is greater than 1e-5 then it is considered a support vector
-        self.alpha_support = alpha[self.idx_support] * self.nu * len(K)  # multipling with nu * len(K) to match values from sklearn
-        return self.alpha_support, self.idx_support
-    
-    def compute_rho(self, K):
-        index = int(np.argmin(self.alpha_support))
-        K_support = K[self.idx_support][:, self.idx_support] 
-        self.rho = self.alpha_support.dot(K_support[index])
-        return self.rho
 
     def fit(self, X):
         K = self.rbf_kernel(X, X)
-        # self.len_K = len(K) # i think not being used-> check again
-        self.alpha_support, self.idx_support = self.ocsvm_solver(K)
-        self.rho = self.compute_rho(K)
+        self.alpha_support, self.idx_support = ocsvm_solver(K, self.nu)
+        print(self.alpha_support)
+        print(self.idx_support)
+        self.rho = compute_rho(K, self.alpha_support, self.idx_support)
         X_support = X[self.idx_support]
         G = self.rbf_kernel(X, X_support)
+        print(G)
         self.decision = G.dot(self.alpha_support) - self.rho
         return self.decision, np.sign(self.decision)
         
@@ -105,11 +72,13 @@ class OneClassSVMModel:
 class OneClassSVMClassifier(object):
     X: FloatTensor
     nu: float
-    gamma: float
+    gamma: float = field(default=None)
     model: Optional['OneClassSVMModel'] = field(init=False, default=None)
     num_inducing_points: int = field(default=None)
 
     def __post_init__(self):
+        self.gamma = self.find_best_gamma()
+        print(self.gamma)
         self.model = OneClassSVMModel(nu=self.nu, gamma=self.gamma)
 
     def fit(self):
@@ -117,3 +86,42 @@ class OneClassSVMClassifier(object):
 
     def plot(self, x1, x2, y1, y2):
         return self.model.plot_ocsvm(self.X.numpy(), x1, x2, y1, y2)
+    
+    def find_best_gamma(self):
+        pairwise_sq_dists = squareform(pdist(self.X, 'sqeuclidean'))  # Squared Euclidean distances
+        median_dist = np.median(pairwise_sq_dists[pairwise_sq_dists > 0])  # Ignore zero distances
+        return 1/median_dist 
+    
+def qp(P, q, A, b, C):   # quadratic programming problem solver
+        # Gram matrix
+    n = P.shape[0]
+    P = cvxopt.matrix(P)
+    q = cvxopt.matrix(q)
+    A = cvxopt.matrix(A)
+    b = cvxopt.matrix(b)
+    G = cvxopt.matrix(np.concatenate(
+        [np.diag(np.ones(n) * -1), np.diag(np.ones(n))], axis=0))
+    h = cvxopt.matrix(np.concatenate([np.zeros(n), C * np.ones(n)]))
+
+    # Solve QP problem
+    cvxopt.solvers.options['show_progress'] = False
+    solution = cvxopt.solvers.qp(P, q, G, h, A, b, solver='mosec')
+    return np.ravel(solution['x'])
+
+def ocsvm_solver(K, nu):  # nu default is 0.1
+    n = len(K)
+    P = K
+    q = np.zeros(n)
+    A = np.matrix(np.ones(n))
+    b = 1.
+    C = 1. / (nu * n)
+    alpha = qp(P, q, A, b, C)
+    idx_support = np.where(np.abs(alpha) > 1e-5)[0] # if alpha is greater than 1e-5 then it is considered a support vector
+    alpha_support = alpha[idx_support] * nu * len(K)  # multipling with nu * len(K) to match values from sklearn
+    return alpha_support, idx_support
+
+def compute_rho(K, alpha_support, idx_support):
+    index = int(np.argmin(alpha_support))
+    K_support = K[idx_support][:, idx_support] 
+    rho = alpha_support.dot(K_support[index])
+    return rho
