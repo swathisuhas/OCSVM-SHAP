@@ -1,16 +1,10 @@
 import shap
 import torch
 
-def summary_plot(shapley_values: torch.Tensor,
-                 query_data: torch.Tensor,
-                 **kwargs
-                 ):
-    return shap.summary_plot(shapley_values.T.numpy(), query_data.numpy(), show=False,
-                             **kwargs)
+def local_bar_plot(shapley_values: torch.Tensor, index:int, **kwargs):
+    title = f"SHAP value (Local Explanation) for index {index}"
+    return shap.bar_plot(shapley_values.T[index], show=True, max_display=10, string = title,**kwargs)
 
-def bar_plot(shapley_values: torch.Tensor,
-                 query_data: torch.Tensor,
-                 **kwargs
-                 ):
-    return shap.bar_plot(shapley_values.T, query_data, show=True, max_display=10,
+def global_bar_plot(shapley_values: torch.Tensor, **kwargs):
+    return shap.bar_plot(shapley_values.T, show=True, max_display=10, string = "Absolute Mean SHAP value (Global Explanation)",
                              **kwargs)

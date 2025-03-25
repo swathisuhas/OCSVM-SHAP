@@ -55,9 +55,8 @@ class OCSMMSHAP(object):
         )
 
     def _compute_conditional_mean_projection(self, S: BoolTensor, X: List[FloatTensor]):
-        # S = S.bool()  
         X_filtered = [group[:, S] for group in X] 
-        K_SS = self.classifier.kappa_matrix(X_filtered, X_filtered, self.classifier.gamma_d)
+        K_SS = self.classifier.kappa_matrix(X_filtered, X_filtered, self.classifier.gamma)
         K_SS = torch.tensor(K_SS).float()
         regularization_term = len(self.X) * self.cme_regularisation
         K_SS_regularized = K_SS + regularization_term * torch.eye(K_SS.shape[0]).float()
