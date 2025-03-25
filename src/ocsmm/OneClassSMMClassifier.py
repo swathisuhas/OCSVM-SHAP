@@ -19,7 +19,7 @@ class OneClassSMMClassifier:
         P = cvxopt.matrix(kappa)
         q = cvxopt.matrix(zeros)
         G = cvxopt.matrix(np.vstack((-np.identity(num_groups), np.identity(num_groups))))
-        C = self.nu#1.0/(self.nu*num_groups)
+        C = 1.0/(self.nu*num_groups)
         h = cvxopt.matrix(np.vstack((zeros, C*ones)))
         A = cvxopt.matrix(ones.T)
         b = cvxopt.matrix(1.0)
@@ -29,26 +29,26 @@ class OneClassSMMClassifier:
         
     def predict(self, test_dataset):
         self.kappa = self.kappa_matrix(self.datasets, test_dataset, self.gamma)
-        self.support_index = np.squeeze(np.where(self.alpha > 1e-5))
-        G = np.matmul(self.kappa[self.support_index,:].T, np.expand_dims(self.alpha[self.support_index],axis=1))
+        self.idx_support = np.squeeze(np.where(self.alpha > 1e-4))
+        G = np.matmul(self.kappa[self.idx_support,:].T, np.expand_dims(self.alpha[self.idx_support]*self.nu*len(self.kappa),axis=1))
         rho = self.compute_rho() 
         decision = G-rho
         return decision.ravel(), np.sign(decision).ravel()
     
     def compute_rho(self):
-        valid_support_index = np.where((self.alpha > 1e-5) & (self.alpha < (1 / (self.nu * len(self.datasets)))))[0]
+        valid_support_index = np.where((self.alpha > 1e-4) & (self.alpha < (1 / (self.nu * len(self.datasets)))))[0]
         support_lists = [self.datasets[i] for i in valid_support_index]
         kappa_support = self.kappa_matrix(self.datasets, support_lists, self.gamma)
-        rho = np.mean(np.sum(self.alpha[:, None] * kappa_support, axis=0))
+        rho = np.mean(np.sum(self.alpha[:, None]*self.nu*len(self.kappa) * kappa_support, axis=0))
         return rho
 
     def find_best_gamma(self):
         gamma_values = []
         for group in self.datasets: 
-            pairwise_sq_dists = squareform(pdist(group, 'sqeuclidean'))  # Squared Euclidean distances
-            median_dist = np.median(pairwise_sq_dists[pairwise_sq_dists > 0])  # Ignore zero distances
+            pairwise_sq_dists = squareform(pdist(group, 'sqeuclidean')) 
+            median_dist = np.median(pairwise_sq_dists[pairwise_sq_dists > 0])  
             gamma_values.append( 1 / (median_dist))
-        return np.median(gamma_values) 
+        return np.mean(gamma_values) 
 
     def kernel(self, X, Y, gamma):
         dists_2 = np.linalg.norm(X[:, np.newaxis, :] - Y[np.newaxis, :, :], axis=2) ** 2
