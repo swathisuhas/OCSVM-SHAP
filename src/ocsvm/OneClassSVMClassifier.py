@@ -4,7 +4,6 @@ from scipy import linalg
 import matplotlib.pyplot as plt
 from torch import FloatTensor
 from scipy.spatial.distance import pdist, squareform
-from sklearn.svm import OneClassSVM
 
 from dataclasses import dataclass, field
 from typing import Optional
