@@ -67,9 +67,11 @@ class OneClassSVMModel:
 class OneClassSVMClassifier(object):
     X: FloatTensor
     nu: float
+    # gamma: Optional[float] = find_best_gamma()
     model: Optional['OneClassSVMModel'] = field(init=False, default=None)
 
     def __post_init__(self):
+        # if self.gamma==None:
         gamma = self.find_best_gamma()
         self.model = OneClassSVMModel(nu=self.nu, gamma=gamma)
 
