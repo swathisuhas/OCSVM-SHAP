@@ -18,21 +18,31 @@ class OCSVMSHAP(object):
     coalitions: BoolTensor = field(init=False)
     weights: FloatTensor = field(init=False)
     cme_regularisation: FloatTensor = field(init=False, default=torch.tensor(1e-4).float())
-    num_cpus: int = field(init=False, default=6)
+    num_cpus: int = field(init=False, default=150)
     
     def __post_init__(self):
         self.decision = self.classifier.model.decision
     
     def fit_ocsvmshap(self, X: FloatTensor, num_coalitions: int) -> None:
         self.weights, self.coalitions = compute_weights_and_coalitions(num_features=X.shape[1], num_coalitions=num_coalitions)
-        self.conditional_mean_projections = self._compute_conditional_mean_projections(X)
-        self.mean_stochastic_value_function_evaluations = torch.cat([
-            torch.ones((1, X.shape[0])) * self.decision.mean(),
-            torch.einsum(
-                'ijk,j->ik', self.conditional_mean_projections, torch.tensor(self.decision).float()
-            )
-        ])
     
+        minus_first_coalitions = self.coalitions[1:]
+        decision_tensor = torch.tensor(self.decision).float()
+
+        # Process in parallel: just return einsum result, not the full projection
+        def compute_value(S):
+            proj = self._compute_conditional_mean_projection(S.bool(), X)
+            return torch.matmul(proj, decision_tensor)
+
+        value_function_evals = Parallel(n_jobs=self.num_cpus)(
+            delayed(compute_value)(S) for S in tqdm(minus_first_coalitions, desc="Parallel projections")
+        )
+
+        # Insert value for empty coalition at the top
+        value_function_evals.insert(0, torch.ones((X.shape[0],)) * self.decision.mean())
+
+        self.mean_stochastic_value_function_evaluations = torch.stack(value_function_evals)
+        
     def return_deterministic_shapley_values(self) -> FloatTensor:
         return _solve_weighted_least_square_regression(SHAP_weights=self.weights,
                                                             coalitions=self.coalitions,
@@ -41,13 +51,13 @@ class OCSVMSHAP(object):
     
     def _compute_conditional_mean_projections(self, X):
         minus_first_coalitions = self.coalitions[1:]  # remove the first row of 0s.
-        compute_conditional_mean_projections = lambda S: self._compute_conditional_mean_projection(S.bool(), X)
-        return torch.stack(
-            Parallel(n_jobs=self.num_cpus)(
-                delayed(compute_conditional_mean_projections)(S.bool())
-                for S in tqdm(minus_first_coalitions)
-            )
-        )
+        projections = []
+
+        for S in tqdm(minus_first_coalitions, desc="Computing conditional mean projections"):
+            proj = self._compute_conditional_mean_projection(S.bool(), X)
+            projections.append(proj)
+
+        return projections
 
     def _compute_conditional_mean_projection(self, S: BoolTensor, X: FloatTensor):
         """ compute the expression k_S(x, X)(K_SS + lambda I)^{-1} that can be reused multiple times

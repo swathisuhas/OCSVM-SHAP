@@ -4,6 +4,7 @@ from scipy import linalg
 import matplotlib.pyplot as plt
 from torch import FloatTensor
 from scipy.spatial.distance import pdist, squareform
+from sklearn.metrics.pairwise import rbf_kernel
 
 from dataclasses import dataclass, field
 from typing import Optional
@@ -15,13 +16,7 @@ class OneClassSVMModel:
         self.decision = None
     
     def rbf_kernel(self, X1, X2):
-        n1 = X1.shape[0]
-        n2 = X2.shape[0]
-        K = np.empty((n1, n2))
-        for i in range(n1):
-            for j in range(n2):
-                K[i, j] = self._rbf_metric(X1[i], X2[j])
-        return K
+        return rbf_kernel(X1, X2, gamma=self.gamma)
 
     def _rbf_metric(self, x, y):
         return np.exp(-self.gamma * linalg.norm(x - y, 2)**2)
@@ -67,9 +62,11 @@ class OneClassSVMModel:
 class OneClassSVMClassifier(object):
     X: FloatTensor
     nu: float
+    # gamma: Optional[float] = find_best_gamma()
     model: Optional['OneClassSVMModel'] = field(init=False, default=None)
 
     def __post_init__(self):
+        # if self.gamma==None:
         gamma = self.find_best_gamma()
         self.model = OneClassSVMModel(nu=self.nu, gamma=gamma)
 
