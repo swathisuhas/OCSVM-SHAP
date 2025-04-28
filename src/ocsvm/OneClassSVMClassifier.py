@@ -6,20 +6,48 @@ from torch import FloatTensor
 from scipy.spatial.distance import pdist, squareform
 from sklearn.metrics.pairwise import rbf_kernel
 
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
-class OneClassSVMModel:
-    def __init__(self, nu, gamma):
-        self.nu = nu
-        self.gamma = gamma
+@dataclass()
+class OneClassSVMClassifier(object):
+    X: FloatTensor
+    nu: float
+
+    def __post_init__(self):
+        self.gamma = self.find_best_gamma()
         self.decision = None
+
+    def fit(self):
+        K = self.rbf_kernel(self.X, self.X)
+        self.alpha_support, idx_support = self.qp_solver(K)
+        self.rho = self.compute_rho(K, self.alpha_support, idx_support)
+        self.X_support = self.X[idx_support]
+        G = self.rbf_kernel(self.X, self.X_support)
+        self.decision = G.dot(self.alpha_support) - self.rho
+        return self.decision, np.sign(self.decision)
+
+    def predict(self, X_test):
+        K_test = self.rbf_kernel(X_test, self.X_support)  # Kernel between test and train
+        scores = K_test.dot(self.alpha_support) - self.rho
+        return scores
+    
+    
+    def find_best_gamma(self):
+        pairwise_sq_dists = squareform(pdist(self.X, 'sqeuclidean'))  
+        median_dist = np.median(pairwise_sq_dists[pairwise_sq_dists > 0])  
+        return 1/median_dist 
     
     def rbf_kernel(self, X1, X2):
         return rbf_kernel(X1, X2, gamma=self.gamma)
 
     def _rbf_metric(self, x, y):
         return np.exp(-self.gamma * linalg.norm(x - y, 2)**2)
+    
+    def compute_rho(self, K, alpha_support, idx_support):
+        index = int(np.argmin(alpha_support))
+        K_support = K[idx_support][:, idx_support]
+        rho = alpha_support.dot(K_support[index])
+        return rho
 
     def qp_solver(self, K): 
         n = len(K)
@@ -37,46 +65,4 @@ class OneClassSVMModel:
         alpha =np.ravel(solution['x'])
         idx_support = np.where(np.abs(alpha) > 1e-4)[0]
         alpha_support = alpha[idx_support] * self.nu * len(K)
-        print(alpha_support)
-        print(idx_support)
         return alpha_support, idx_support
-
-    def compute_rho(self, K, alpha_support, idx_support):
-        index = int(np.argmin(alpha_support))
-        K_support = K[idx_support][:, idx_support]
-        rho = alpha_support.dot(K_support[index])
-        print(rho)
-        return rho
-
-    def fit(self, X):
-        K = self.rbf_kernel(X, X)
-        print(K)
-        alpha_support, idx_support = self.qp_solver(K)
-        rho = self.compute_rho(K, alpha_support, idx_support)
-        X_support = X[idx_support]
-        G = self.rbf_kernel(X, X_support)
-        self.decision = G.dot(alpha_support) - rho
-        return self.decision, np.sign(self.decision)
-
-@dataclass()
-class OneClassSVMClassifier(object):
-    X: FloatTensor
-    nu: float
-    # gamma: Optional[float] = find_best_gamma()
-    model: Optional['OneClassSVMModel'] = field(init=False, default=None)
-
-    def __post_init__(self):
-        # if self.gamma==None:
-        gamma = self.find_best_gamma()
-        self.model = OneClassSVMModel(nu=self.nu, gamma=gamma)
-
-    def fit(self):
-        return self.model.fit(self.X)
-
-    def plot(self, x1, x2, y1, y2):
-        return self.model.plot_ocsvm(self.X.numpy(), x1, x2, y1, y2)
-    
-    def find_best_gamma(self):
-        pairwise_sq_dists = squareform(pdist(self.X, 'sqeuclidean'))  # Squared Euclidean distances
-        median_dist = np.median(pairwise_sq_dists[pairwise_sq_dists > 0])  # Ignore zero distances
-        return 1/median_dist 

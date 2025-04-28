@@ -4,9 +4,14 @@ from joblib import Parallel, delayed
 from torch import FloatTensor, BoolTensor, Tensor
 from tqdm import tqdm
 from typing import List
+import warnings
 
 from src.ocsmm.OneClassSMMClassifier import OneClassSMMClassifier
 from src.utils.shapley_procedure.preparing_weights_and_coalitions import compute_weights_and_coalitions
+
+warnings.filterwarnings('ignore', category=UserWarning)
+warnings.filterwarnings('ignore', category=RuntimeWarning)
+
 
 @dataclass(kw_only=True)
 class OCSMMSHAP(object):

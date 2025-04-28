@@ -4,6 +4,7 @@ import torch
 from joblib import Parallel, delayed
 from torch import FloatTensor, BoolTensor, Tensor
 from tqdm import tqdm
+import warnings
 
 from src.ocsvm.OneClassSVMClassifier import OneClassSVMClassifier
 from src.utils.shapley_procedure.preparing_weights_and_coalitions import compute_weights_and_coalitions
@@ -21,7 +22,8 @@ class OCSVMSHAP(object):
     num_cpus: int = field(init=False, default=150)
     
     def __post_init__(self):
-        self.decision = self.classifier.model.decision
+        warnings.filterwarnings('ignore', category=RuntimeWarning)
+        self.decision = self.classifier.decision
     
     def fit_ocsvmshap(self, X: FloatTensor, num_coalitions: int) -> None:
         self.weights, self.coalitions = compute_weights_and_coalitions(num_features=X.shape[1], num_coalitions=num_coalitions)
@@ -62,7 +64,7 @@ class OCSVMSHAP(object):
     def _compute_conditional_mean_projection(self, S: BoolTensor, X: FloatTensor):
         """ compute the expression k_S(x, X)(K_SS + lambda I)^{-1} that can be reused multiple times
         """
-        K_SS = self.classifier.model.rbf_kernel(self.X[:, S], self.X[:, S])
+        K_SS = self.classifier.rbf_kernel(self.X[:, S], self.X[:, S])
         regularization_term = len(X) * self.cme_regularisation
         K_SS_regularized = np.add(K_SS, regularization_term * np.eye(K_SS.shape[0]))
         K_SS_regularized = K_SS_regularized.float()

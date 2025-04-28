@@ -16,7 +16,7 @@ class OneClassSMMClassifier:
         print("Best gamma found.\n")
         num_groups = len(self.datasets)
         self.kappa = self.kappa_matrix(self.datasets, self.datasets)
-        print("kappa matrix calculated.\n")
+        print("Kappa matrix calculated.\n")
         ones = np.ones(shape=(num_groups,1))
         zeros = np.zeros(shape=(num_groups,1))
         P = cvxopt.matrix(self.kappa)
@@ -32,11 +32,11 @@ class OneClassSMMClassifier:
         self.alpha = np.ravel(solution['x'])
         
     def predict(self, test_dataset):
-        print("Calculating kappa...\n")
+        print("Calculating kappa.\n")
         # self.kappa = self.kappa_matrix(self.datasets, test_dataset)  # Can be uncommented if test_dataset is different
         self.idx_support = np.squeeze(np.where(self.alpha > 1e-5))
         G = np.matmul(self.kappa[self.idx_support,:].T, np.expand_dims(self.alpha[self.idx_support]*self.nu*len(self.kappa),axis=1))
-        print("calculatin rho")
+        print("calculating rho.\n")
         rho = self.compute_rho() 
         decision = G-rho
         return decision.ravel(), np.sign(decision).ravel()
@@ -81,7 +81,6 @@ class OneClassSMMClassifier:
             for i in range(n1)
             for j in range(n2)
         )
-        # print("calculating kappa...\n")
         for i, j, val in results:
             Kcross[i, j] = val
 
