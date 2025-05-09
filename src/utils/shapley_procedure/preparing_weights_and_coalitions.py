@@ -1,5 +1,7 @@
 import torch
-
+import itertools
+from math import comb
+from random import sample
 from src.utils.shapley_procedure.coalitions import build_coalitions
 from src.utils.shapley_procedure.weights import compute_kernelshap_weights_for_pre_coalitions
 

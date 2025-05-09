@@ -15,42 +15,46 @@ class OneClassSMMClassifier:
         self.gamma = self.find_best_gamma()
         print("Best gamma found.\n")
         num_groups = len(self.datasets)
-        self.kappa = self.kappa_matrix(self.datasets, self.datasets)
+        self.train_kappa = self.kappa_matrix(self.datasets, self.datasets)
         print("Kappa matrix calculated.\n")
         ones = np.ones(shape=(num_groups,1))
         zeros = np.zeros(shape=(num_groups,1))
-        P = cvxopt.matrix(self.kappa)
+        P = cvxopt.matrix(self.train_kappa)
         q = cvxopt.matrix(zeros)
         G = cvxopt.matrix(np.vstack((-np.identity(num_groups), np.identity(num_groups))))
         C = 1.0/(self.nu*num_groups)
         h = cvxopt.matrix(np.vstack((zeros, C*ones)))
         A = cvxopt.matrix(ones.T)
         b = cvxopt.matrix(1.0)
+        self.C=C
         cvxopt.solvers.options['show_progress'] = False
-        solution = cvxopt.solvers.qp(P, q, G, h, A, b, solver='mosec')
+        solution = cvxopt.solvers.qp(P, q, G, h, A, b)
         print("Found the alphas.\n")
         self.alpha = np.ravel(solution['x'])
         
     def predict(self, test_dataset):
         print("Calculating kappa.\n")
-        # self.kappa = self.kappa_matrix(self.datasets, test_dataset)  # Can be uncommented if test_dataset is different
+        self.test_kappa = self.kappa_matrix(self.datasets, test_dataset)  # Can be uncommented if test_dataset is different
         self.idx_support = np.squeeze(np.where(self.alpha > 1e-5))
-        G = np.matmul(self.kappa[self.idx_support,:].T, np.expand_dims(self.alpha[self.idx_support]*self.nu*len(self.kappa),axis=1))
+        G = np.matmul(self.test_kappa[self.idx_support,:].T, np.expand_dims(self.alpha[self.idx_support],axis=1))
         print("calculating rho.\n")
         rho = self.compute_rho() 
+        print(rho)
         decision = G-rho
         return decision.ravel(), np.sign(decision).ravel()
     
     def compute_rho(self):  
-        K_support = self.kappa[self.idx_support][:, self.idx_support]
-        rho = np.dot(self.alpha[self.idx_support]*self.nu*len(self.kappa), K_support)
-        print(rho)
-        return np.mean(rho)
+        K_support = self.train_kappa[self.idx_support][:, self.idx_support]
+        # Calculate decision score for support vectors
+        decision_values_sv = np.dot(K_support, self.alpha[self.idx_support])
+        # Often averaged over SVs on the boundary, but averaging over all is common
+        self.rho = np.mean(decision_values_sv)
+        return self.rho
 
     def compute_group_gamma(self, group):
         pairwise_sq_dists = squareform(pdist(group, 'sqeuclidean'))
         median_dist = np.median(pairwise_sq_dists[pairwise_sq_dists > 0])
-        return 1 / median_dist if median_dist > 0 else 0  
+        return 2 / (median_dist) if median_dist > 0 else 0  
 
     def find_best_gamma(self):
         gamma_values = Parallel(n_jobs=20)(

@@ -29,7 +29,7 @@ class OCSVMSHAP(object):
         self.weights, self.coalitions = compute_weights_and_coalitions(num_features=X.shape[1], num_coalitions=num_coalitions)
     
         minus_first_coalitions = self.coalitions[1:]
-        decision_tensor = torch.tensor(self.decision).float()
+        decision_tensor = torch.tensor(self.decision).float()   ###TODO: make alpha
 
         # Process in parallel: just return einsum result, not the full projection
         def compute_value(S):

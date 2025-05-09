@@ -5,13 +5,22 @@ from torch import FloatTensor, BoolTensor, Tensor
 from tqdm import tqdm
 from typing import List
 import warnings
-
+import itertools
 from src.ocsmm.OneClassSMMClassifier import OneClassSMMClassifier
-from src.utils.shapley_procedure.preparing_weights_and_coalitions import compute_weights_and_coalitions
+from src.utils.shapley_procedure.preparing_weights_and_coalitions import compute_weights_and_coalitions, compute_weights_and_coalitions_for_order_k
 
 warnings.filterwarnings('ignore', category=UserWarning)
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
+def _solve_weighted_least_square_regression(SHAP_weights: FloatTensor,
+                                            coalitions: BoolTensor,
+                                            regression_target: FloatTensor | Tensor,
+                                            ) -> FloatTensor:
+    weighted_regression_target = regression_target * SHAP_weights
+    ZtWvx = coalitions.t() @ weighted_regression_target
+    L = torch.linalg.cholesky(coalitions.t() @ (coalitions * SHAP_weights))
+
+    return torch.cholesky_solve(ZtWvx, L).detach()
 
 @dataclass(kw_only=True)
 class OCSMMSHAP(object):
@@ -56,7 +65,6 @@ class OCSMMSHAP(object):
         # Clear intermediate results from memory
         del value_function_evals
 
-       
 
     def return_deterministic_shapley_values(self) -> FloatTensor:
         return _solve_weighted_least_square_regression(SHAP_weights=self.weights,
@@ -74,7 +82,6 @@ class OCSMMSHAP(object):
 
         return projections
 
-
     def _compute_conditional_mean_projection(self, S: BoolTensor, X: List[FloatTensor]):
         X_filtered = [group[:, S] for group in X] 
         K_SS = self.classifier.kappa_matrix(X_filtered, X_filtered)
@@ -84,13 +91,3 @@ class OCSMMSHAP(object):
         K_SS_inv = torch.inverse(K_SS_regularized)
         conditional_mean_projection = K_SS_inv.matmul(K_SS)
         return conditional_mean_projection.detach()
-
-def _solve_weighted_least_square_regression(SHAP_weights: FloatTensor,
-                                            coalitions: BoolTensor,
-                                            regression_target: FloatTensor | Tensor,
-                                            ) -> FloatTensor:
-    weighted_regression_target = regression_target * SHAP_weights
-    ZtWvx = coalitions.t() @ weighted_regression_target
-    L = torch.linalg.cholesky(coalitions.t() @ (coalitions * SHAP_weights))
-
-    return torch.cholesky_solve(ZtWvx, L).detach()
